@@ -2,18 +2,23 @@
 require('dotenv').config();
 const cors = require('cors');
 const helmet = require('helmet');
-const express = require('express');
-const axios = require('axios');
+const express = require('express'); // ← Add this
+const axios = require('axios'); // ← You'll need this for the Facebook API call
 
 // Create the Express app instance
-const app = express();
+const app = express(); // ← Add this line
 app.use(express.json());
+// Now you can use app.use()
+// app.use(helmet());
 
-// CORS middleware
 app.use(cors({
   origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:8080'],
   credentials: true
 }));
+
+// app.use(helmet({
+//   contentSecurityPolicy: false // Disable CSP completely for testing
+// }));
 
 // Add logging middleware
 app.use((req, res, next) => {
@@ -21,30 +26,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve static files
-app.use(express.static('public'));
-
-// ContentGenerator
-const ContentGenerator = {
-  generateListingPost: async (data) => {
-    return {
-      title: `Property Listing: ${data.address || 'Unknown Property'}`,
-      description: `Amazing property at ${data.address} priced at ${data.price || 'TBD'}`,
-      bedrooms: data.bedrooms,
-      bathrooms: data.bathrooms,
-      sqft: data.sqft,
-      features: data.features || [],
-      hashtags: ['#realestate', '#property', '#forsale'],
-      generatedAt: new Date().toISOString()
-    };
-  }
-};
-
-// ROUTES
-
-// Facebook pages endpoint
+// Add this test endpoint to server.js for getting page tokens
 app.get('/auth/facebook/pages', async (req, res) => {
   try {
+    // This is a helper endpoint for development
+    // In production, implement proper OAuth flow
     const userToken = req.query.user_access_token;
     
     const response = await axios.get(`https://graph.facebook.com/v18.0/me/accounts`, {
@@ -59,17 +45,32 @@ app.get('/auth/facebook/pages', async (req, res) => {
   }
 });
 
-// Single listings endpoint (FIXED - removed duplicate)
-app.post('/api/test/generate-content', async (req, res) => {
-  try {
-    const content = await ContentGenerator.generateListingPost(req.body);
-    console.log('Generated content:', content); // FIXED: println -> console.log
-    res.json({ success: true, content });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+// Add this at the top of your server.js
+const ContentGenerator = {
+  generateListingPost: async (data) => {
+    return {
+      title: `Property Listing: ${data.property || 'Unknown Property'}`,
+      description: `Amazing property priced at $${data.price || 'TBD'}`,
+      hashtags: ['#realestate', '#property', '#forsale'],
+      generatedAt: new Date().toISOString()
+    };
   }
-});
+};
+app.use(express.static('public'));
 
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on the port ${PORT}`);
+});
+app.post ('/api/listings', async (req, res) => {
+try {
+const content = await ContentGenerator.generateListingPost(req.body);
+res.json({ success: true, content });
+println('Generated content:', content);
+} catch (error) {
+res.status (500).json({ error: error.message });
+}
+});
 app.post('/api/listings', async (req, res) => {
   try {
     // Simple test response instead of ContentGenerator
@@ -84,7 +85,7 @@ app.post('/api/listings', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-// Test HTML page
+
 app.get('/test', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -138,10 +139,4 @@ app.get('/test', (req, res) => {
     </body>
     </html>
     `);
-});
-
-// Start server (MUST be at the end)
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
 });
