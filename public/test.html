@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>Real Estate API Test</h1>
+    <button id="myButton">Click me</button>
+    <div id="result"></div>
+
+    <script>
+            document.getElementById('myButton').addEventListener('click', function() {
+        // Your event handling logic here
+        console.log('Button clicked!');
+        testAPI()
+                console.log('Button clicked after!');
+
+    });
+        async function testAPI() {
+            try {
+                const response = await fetch('http://localhost:3000/api/listings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        address: "123 Test Street",
+                        price: "$450,000",
+                        bedrooms: 3,
+                        bathrooms: 2,
+                        sqft: 1800,
+                        features: ["hardwood floors", "updated kitchen", "large backyard"],
+                        type: "House",
+                        city: "Test City",
+                        neighborhood: "Test Neighborhood"
+                    })
+                });
+                
+                const data = await response.json();
+                document.getElementById('result').innerHTML = 
+                    '<h3>Success:</h3><pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            } catch (error) {
+                document.getElementById('result').innerHTML = 
+                    '<h3>Error:</h3><pre>' + error.message + '</pre>';
+            }
+        }
+    </script>
+</body>
+</html>
