@@ -97,19 +97,8 @@ app.post('/api/listings', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+  
 
-// app.post('/api/post-now', async (req, res) => {
-//   try {
-//     console.log('Posting now:', req.body.content);
-//     // Here you would integrate with Facebook API to actually post
-//     res.json({ 
-//       success: true, 
-//       message: "Posted successfully to Facebook!" 
-//     });
-//   } catch (error) {
-//     res.status(500).json({ success: false, error: error.message });
-//   }
-// });
 
 app.post('/api/post-now', async (req, res) => {
   try {
