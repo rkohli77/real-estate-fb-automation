@@ -42,6 +42,16 @@ const ContentGenerator = {
   }
 };
 
+app.get('/debug', (req, res) => {
+  res.json({
+    NODE_ENV: process.env.NODE_ENV,
+    isDevelopment: process.env.NODE_ENV === 'development',
+    hasPageToken: !!process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
+    hasPageId: !!process.env.FACEBOOK_PAGE_ID,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // ROUTES
 
 // Facebook pages endpoint
@@ -211,8 +221,15 @@ app.get('/test', (req, res) => {
     `);
 });
 
-// Start server (MUST be at the end)
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+
+
+// Keep your existing app.listen but wrap it in a condition
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+// Add this at the very end of server.js for Vercel
+module.exports = app;
