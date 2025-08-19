@@ -1,5 +1,5 @@
-// facebook.js - Facebook API wrapper
-const { FacebookAdsApi, Page } = require('facebook-nodejs-business-sdk');
+// facebook-simple.js - Simple Facebook API wrapper using direct HTTP calls
+const axios = require('axios');
 require('dotenv').config();
 
 class FacebookAPI {
@@ -8,11 +8,7 @@ class FacebookAPI {
     this.pageId = process.env.FACEBOOK_PAGE_ID;
     this.appId = process.env.FACEBOOK_APP_ID;
     this.appSecret = process.env.FACEBOOK_APP_SECRET;
-    
-    // Initialize Facebook API
-    if (this.accessToken && this.appId && this.appSecret) {
-      FacebookAdsApi.init(this.accessToken);
-    }
+    this.baseURL = 'https://graph.facebook.com/v18.0';
   }
 
   async testConnection() {
@@ -24,43 +20,51 @@ class FacebookAPI {
         };
       }
 
-      const page = new Page(this.pageId);
-      const pageInfo = await page.read(['name', 'id']);
+      const response = await axios.get(`${this.baseURL}/${this.pageId}`, {
+        params: {
+          fields: 'name,id',
+          access_token: this.accessToken
+        }
+      });
       
       return {
         connected: true,
         page: {
-          id: pageInfo.id,
-          name: pageInfo.name
+          id: response.data.id,
+          name: response.data.name
         }
       };
     } catch (error) {
-      console.error('Facebook connection test failed:', error);
+      console.error('Facebook connection test failed:', error.response?.data || error.message);
       return {
         connected: false,
-        error: error.message
+        error: error.response?.data?.error?.message || error.message
       };
     }
   }
 
   async getPageInfo() {
     try {
-      if (!this.pageId) {
-        throw new Error('Facebook Page ID not configured');
+      if (!this.pageId || !this.accessToken) {
+        throw new Error('Facebook Page ID or Access Token not configured');
       }
 
-      const page = new Page(this.pageId);
-      const pageInfo = await page.read(['name', 'id', 'followers_count', 'fan_count']);
+      const response = await axios.get(`${this.baseURL}/${this.pageId}`, {
+        params: {
+          fields: 'name,id,followers_count,fan_count',
+          access_token: this.accessToken
+        }
+      });
       
       return {
-        id: pageInfo.id,
-        name: pageInfo.name,
-        followers: pageInfo.followers_count,
-        likes: pageInfo.fan_count
+        id: response.data.id,
+        name: response.data.name,
+        followers: response.data.followers_count || 0,
+        likes: response.data.fan_count || 0
       };
     } catch (error) {
-      console.error('Get page info failed:', error);
-      throw error;
+      console.error('Get page info failed:', error.response?.data || error.message);
+      throw new Error(error.response?.data?.error?.message || error.message);
     }
   }
 
@@ -73,27 +77,21 @@ class FacebookAPI {
         };
       }
 
-      const page = new Page(this.pageId);
-      
-      // Post to Facebook page feed
-      const response = await page.createFeed(
-        ['id'],
-        {
-          message: content,
-          access_token: this.accessToken
-        }
-      );
+      const response = await axios.post(`${this.baseURL}/${this.pageId}/feed`, {
+        message: content,
+        access_token: this.accessToken
+      });
 
       return {
         success: true,
-        postId: response.id,
+        postId: response.data.id,
         message: 'Posted successfully to Facebook'
       };
     } catch (error) {
-      console.error('Facebook post failed:', error);
+      console.error('Facebook post failed:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.message
+        error: error.response?.data?.error?.message || error.message
       };
     }
   }
@@ -107,28 +105,22 @@ class FacebookAPI {
         };
       }
 
-      const page = new Page(this.pageId);
-      
-      // Post with image to Facebook page
-      const response = await page.createPhoto(
-        ['id'],
-        {
-          message: content,
-          url: imageUrl,
-          access_token: this.accessToken
-        }
-      );
+      const response = await axios.post(`${this.baseURL}/${this.pageId}/photos`, {
+        message: content,
+        url: imageUrl,
+        access_token: this.accessToken
+      });
 
       return {
         success: true,
-        postId: response.id,
+        postId: response.data.id,
         message: 'Posted with image successfully to Facebook'
       };
     } catch (error) {
-      console.error('Facebook post with image failed:', error);
+      console.error('Facebook post with image failed:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.message
+        error: error.response?.data?.error?.message || error.message
       };
     }
   }
