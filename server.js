@@ -1,224 +1,117 @@
-// Add at the top of server.js
-// Add this with your other imports at the top
-const FacebookAPI = require('./facebookAPI');
-require('dotenv').config();
-const cors = require('cors');
-const helmet = require('helmet');
+// server.js - Clean main server file
 const express = require('express');
-const axios = require('axios');
+const cors = require('cors');
+const facebookRoutes = require('./routes/facebook');
 
-// Create the Express app instance
 const app = express();
-app.use(express.json());
+const port = process.env.PORT || 3000;
 
-// CORS middleware
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:8080'],
-  credentials: true
-}));
+// Middleware
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Add logging middleware
+// Request logging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
-// Serve static files
-app.use(express.static('public'));
+// Routes
 
-// ContentGenerator
-const ContentGenerator = {
-  generateListingPost: async (data) => {
-    return {
-      title: `Property Listing: ${data.address || 'Unknown Property'}`,
-      description: `Amazing property at ${data.address} priced at ${data.price || 'TBD'}`,
-      bedrooms: data.bedrooms,
-      bathrooms: data.bathrooms,
-      sqft: data.sqft,
-      features: data.features || [],
-      hashtags: ['#realestate', '#property', '#forsale'],
-      generatedAt: new Date().toISOString()
-    };
-  }
-};
-
-app.get('/debug', (req, res) => {
+// Health check
+app.get('/', (req, res) => {
   res.json({
-    NODE_ENV: process.env.NODE_ENV,
-    isDevelopment: process.env.NODE_ENV === 'development',
-    hasPageToken: !!process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
-    hasPageId: !!process.env.FACEBOOK_PAGE_ID,
+    message: "🏠 Real Estate Sage API",
+    status: "✅ Running",
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: "GET /",
+      postToFacebook: "POST /api/post-now",
+      facebookStatus: "GET /api/facebook-status",
+      pageInfo: "GET /api/page-info",
+      privacyPolicy: "GET /api/privacy-policy"
+    },
+    version: "2.0.0"
+  });
+});
+
+// Facebook API routes
+app.use('/api', facebookRoutes);
+
+// Privacy policy for Facebook app compliance
+app.get('/api/privacy-policy', (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Real Estate Sage</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+    h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 15px; }
+    .highlight { background: #e8f4fd; padding: 20px; border-radius: 10px; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <h1>🛡️ Privacy Policy</h1>
+  <p><strong>Last updated:</strong> ${new Date().toLocaleDateString()}</p>
+  
+  <div class="highlight">
+    <strong>🔒 Your Privacy:</strong> We only use Facebook data to post content when you authorize it.
+  </div>
+
+  <h2>Facebook Integration</h2>
+  <p>When you use our Real Estate Sage application:</p>
+  <ul>
+    <li>We only post content you explicitly approve</li>
+    <li>We don't store your Facebook data</li>
+    <li>You can revoke permissions anytime</li>
+  </ul>
+
+  <h2>Contact</h2>
+  <p>📧 Email: privacy@real-estate-sage.com</p>
+  <p>🌐 Website: https://real-estate-sage-theta.vercel.app</p>
+</body>
+</html>
+  `);
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    error: "🔍 Endpoint not found",
+    requested: req.originalUrl,
+    available: [
+      "GET /",
+      "POST /api/post-now",
+      "GET /api/facebook-status", 
+      "GET /api/page-info",
+      "GET /api/privacy-policy"
+    ],
     timestamp: new Date().toISOString()
   });
 });
 
-// ROUTES
-
-// Facebook pages endpoint
-app.get('/auth/facebook/pages', async (req, res) => {
-  try {
-    const userToken = req.query.user_access_token;
-    
-    const response = await axios.get(`https://graph.facebook.com/v18.0/me/accounts`, {
-      params: {
-        access_token: userToken
-      }
-    });
-    
-    res.json(response.data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Single listings endpoint (FIXED - removed duplicate)
-app.post('/api/test/generate-content', async (req, res) => {
-  try {
-    const content = await ContentGenerator.generateListingPost(req.body);
-    console.log('Generated content:', content); // FIXED: println -> console.log
-    res.json({ success: true, content });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// iOS App endpoints
-app.post('/api/listings', async (req, res) => {
-  try {
-    const content = await ContentGenerator.generateListingPost(req.body);
-    console.log('Added listing:', content);
-    res.json({ 
-      success: true, 
-      message: "Listing added to queue",
-      queueId: "queue_" + Date.now(),
-      generatedContent: JSON.stringify(content)
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-  
-
-
-app.post('/api/post-now', async (req, res) => {
-  try {
-    const result = await FacebookAPI.postToPage(req.body.content, req.body.imageUrl);
-    
-    res.json({ 
-      success: result.success, 
-      message: result.success ? "Posted successfully!" : "Failed to post",
-      postId: result.postId,
-      error: result.error
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.get('/api/queue', async (req, res) => {
-  try {
-    // Mock queue data - replace with real database
-    const mockQueue = [
-      {
-        id: "1",
-        type: "listing",
-        content: "Beautiful 3BR home in downtown",
-        priority: 1,
-        status: "pending",
-        createdAt: new Date().toISOString()
-      }
-    ];
-    
-    res.json({
-      queue: mockQueue,
-      dailyPostCount: 3,
-      remainingPostsToday: 7
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.post('/api/tip-post', async (req, res) => {
-  try {
-    const { topic } = req.body;
-    const tipContent = `💡 Pro Tip about ${topic}: This is some helpful real estate advice that would be generated by AI. #RealEstateTips #${topic.replace(/\s+/g, '')}`;
-    
-    res.json({ 
-      success: true, 
-      message: "Tip generated successfully",
-      generatedContent: tipContent
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Test HTML page
-app.get('/test', (req, res) => {
-    res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>API Test</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            button { padding: 10px 20px; font-size: 16px; }
-            #result { margin-top: 20px; padding: 10px; background: #f5f5f5; border-radius: 4px; }
-            pre { white-space: pre-wrap; }
-            .success { border-left: 4px solid green; }
-            .error { border-left: 4px solid red; }
-        </style>
-    </head>
-    <body>
-        <h1>Real Estate API Test</h1>
-        <button id="testBtn">Test Generate Content</button>
-        <div id="result"></div>
-        
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                document.getElementById('testBtn').addEventListener('click', async function() {
-                    const resultDiv = document.getElementById('result');
-                    resultDiv.innerHTML = 'Testing...';
-                    
-                    try {
-                        const response = await fetch('/api/test/generate-content', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                address: "123 Test Street",
-                                price: "$450,000",
-                                bedrooms: 3,
-                                bathrooms: 2,
-                                sqft: 1800,
-                                features: ["hardwood floors", "updated kitchen"]
-                            })
-                        });
-                        
-                        const data = await response.json();
-                        resultDiv.className = 'success';
-                        resultDiv.innerHTML = '<h3>✅ Success:</h3><pre>' + JSON.stringify(data, null, 2) + '</pre>';
-                    } catch (error) {
-                        resultDiv.className = 'error';
-                        resultDiv.innerHTML = '<h3>❌ Error:</h3><pre>' + error.message + '</pre>';
-                    }
-                });
-            });
-        </script>
-    </body>
-    </html>
-    `);
-});
-
-
-
-// Keep your existing app.listen but wrap it in a condition
-if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// Global error handler
+app.use((error, req, res, next) => {
+  console.error('💥 Unhandled error:', error);
+  res.status(500).json({
+    error: "Internal server error",
+    message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
+    timestamp: new Date().toISOString()
   });
-}
+});
 
-// Add this at the very end of server.js for Vercel
+// Start server
+app.listen(port, () => {
+  console.log(`🚀 Real Estate Sage API running on port ${port}`);
+  console.log(`🌐 Health check: http://localhost:${port}`);
+  console.log(`📝 Post endpoint: http://localhost:${port}/api/post-now`);
+  console.log(`📘 Facebook status: http://localhost:${port}/api/facebook-status`);
+  console.log(`🛡️ Privacy policy: http://localhost:${port}/api/privacy-policy`);
+});
+
 module.exports = app;
