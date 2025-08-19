@@ -1,224 +1,141 @@
-// Add at the top of server.js
-// Add this with your other imports at the top
-const FacebookAPI = require('./facebook');
-require('dotenv').config();
-const cors = require('cors');
-const helmet = require('helmet');
 const express = require('express');
-const axios = require('axios');
+const cors = require('cors');
+const { facebookAPI } = require('./facebook');
 
-// Create the Express app instance
 const app = express();
-app.use(express.json());
+const port = process.env.PORT || 3000;
 
-// CORS middleware
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:8080'],
-  credentials: true
-}));
+// Middleware
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
 
-// Add logging middleware
+// Request logging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
-// Serve static files
-app.use(express.static('public'));
-
-// ContentGenerator
-const ContentGenerator = {
-  generateListingPost: async (data) => {
-    return {
-      title: `Property Listing: ${data.address || 'Unknown Property'}`,
-      description: `Amazing property at ${data.address} priced at ${data.price || 'TBD'}`,
-      bedrooms: data.bedrooms,
-      bathrooms: data.bathrooms,
-      sqft: data.sqft,
-      features: data.features || [],
-      hashtags: ['#realestate', '#property', '#forsale'],
-      generatedAt: new Date().toISOString()
-    };
-  }
-};
-
-app.get('/debug', (req, res) => {
+// Health check
+app.get('/', (req, res) => {
   res.json({
-    NODE_ENV: process.env.NODE_ENV,
-    isDevelopment: process.env.NODE_ENV === 'development',
-    hasPageToken: !!process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
-    hasPageId: !!process.env.FACEBOOK_PAGE_ID,
-    timestamp: new Date().toISOString()
+    message: "🏠 Real Estate Sage API",
+    status: "✅ Running",
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: "GET /",
+      postToFacebook: "POST /api/post-now",
+      facebookStatus: "GET /api/facebook-status",
+      pageInfo: "GET /api/page-info"
+    },
+    version: "2.0.0"
   });
 });
 
-// ROUTES
-
-// Facebook pages endpoint
-app.get('/auth/facebook/pages', async (req, res) => {
-  try {
-    const userToken = req.query.user_access_token;
-    
-    const response = await axios.get(`https://graph.facebook.com/v18.0/me/accounts`, {
-      params: {
-        access_token: userToken
-      }
-    });
-    
-    res.json(response.data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Single listings endpoint (FIXED - removed duplicate)
-app.post('/api/test/generate-content', async (req, res) => {
-  try {
-    const content = await ContentGenerator.generateListingPost(req.body);
-    console.log('Generated content:', content); // FIXED: println -> console.log
-    res.json({ success: true, content });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// iOS App endpoints
-app.post('/api/listings', async (req, res) => {
-  try {
-    const content = await ContentGenerator.generateListingPost(req.body);
-    console.log('Added listing:', content);
-    res.json({ 
-      success: true, 
-      message: "Listing added to queue",
-      queueId: "queue_" + Date.now(),
-      generatedContent: JSON.stringify(content)
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-  
-
-
+// POST /api/post-now - Post to Facebook
 app.post('/api/post-now', async (req, res) => {
   try {
-    const result = await FacebookAPI.postToPage(req.body.content, req.body.imageUrl);
+    const { content } = req.body;
     
-    res.json({ 
-      success: result.success, 
-      message: result.success ? "Posted successfully!" : "Failed to post",
-      postId: result.postId,
-      error: result.error
-    });
+    console.log('📝 Post request received:', { content, timestamp: new Date().toISOString() });
+    
+    if (!content) {
+      return res.status(400).json({ 
+        error: "Content is required",
+        example: { content: "Your real estate post content here 🏠" }
+      });
+    }
+
+    // Post to Facebook
+    const result = await facebookAPI.postMessage(content);
+    
+    if (result.success) {
+      console.log('✅ Success:', result);
+      res.status(200).json({
+        message: "🎉 Posted successfully to Facebook!",
+        success: true,
+        facebook: result,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.log('❌ Error:', result);
+      res.status(500).json({
+        error: "❌ Failed to post to Facebook",
+        success: false,
+        details: result.error,
+        timestamp: new Date().toISOString()
+      });
+    }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('💥 Server error in post-now:', error);
+    res.status(500).json({ 
+      error: "Internal server error", 
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
-app.get('/api/queue', async (req, res) => {
+// GET /api/facebook-status - Check Facebook connection
+app.get('/api/facebook-status', async (req, res) => {
   try {
-    // Mock queue data - replace with real database
-    const mockQueue = [
-      {
-        id: "1",
-        type: "listing",
-        content: "Beautiful 3BR home in downtown",
-        priority: 1,
-        status: "pending",
-        createdAt: new Date().toISOString()
-      }
-    ];
+    const connectionTest = await facebookAPI.testConnection();
     
-    res.json({
-      queue: mockQueue,
-      dailyPostCount: 3,
-      remainingPostsToday: 7
-    });
+    if (connectionTest.connected) {
+      res.status(200).json({
+        status: "✅ Facebook connection OK",
+        connected: true,
+        page: connectionTest.page,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(500).json({
+        status: "❌ Facebook connection failed",
+        connected: false,
+        error: connectionTest.error,
+        timestamp: new Date().toISOString()
+      });
+    }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Facebook status check error:', error);
+    res.status(500).json({
+      status: "❌ Facebook test failed",
+      connected: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
-app.post('/api/tip-post', async (req, res) => {
+// GET /api/page-info - Get Facebook page information
+app.get('/api/page-info', async (req, res) => {
   try {
-    const { topic } = req.body;
-    const tipContent = `💡 Pro Tip about ${topic}: This is some helpful real estate advice that would be generated by AI. #RealEstateTips #${topic.replace(/\s+/g, '')}`;
-    
-    res.json({ 
-      success: true, 
-      message: "Tip generated successfully",
-      generatedContent: tipContent
+    const pageInfo = await facebookAPI.getPageInfo();
+    res.status(200).json({
+      success: true,
+      page: pageInfo,
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Page info error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
-// Test HTML page
-app.get('/test', (req, res) => {
-    res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>API Test</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            button { padding: 10px 20px; font-size: 16px; }
-            #result { margin-top: 20px; padding: 10px; background: #f5f5f5; border-radius: 4px; }
-            pre { white-space: pre-wrap; }
-            .success { border-left: 4px solid green; }
-            .error { border-left: 4px solid red; }
-        </style>
-    </head>
-    <body>
-        <h1>Real Estate API Test</h1>
-        <button id="testBtn">Test Generate Content</button>
-        <div id="result"></div>
-        
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                document.getElementById('testBtn').addEventListener('click', async function() {
-                    const resultDiv = document.getElementById('result');
-                    resultDiv.innerHTML = 'Testing...';
-                    
-                    try {
-                        const response = await fetch('/api/test/generate-content', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                address: "123 Test Street",
-                                price: "$450,000",
-                                bedrooms: 3,
-                                bathrooms: 2,
-                                sqft: 1800,
-                                features: ["hardwood floors", "updated kitchen"]
-                            })
-                        });
-                        
-                        const data = await response.json();
-                        resultDiv.className = 'success';
-                        resultDiv.innerHTML = '<h3>✅ Success:</h3><pre>' + JSON.stringify(data, null, 2) + '</pre>';
-                    } catch (error) {
-                        resultDiv.className = 'error';
-                        resultDiv.innerHTML = '<h3>❌ Error:</h3><pre>' + error.message + '</pre>';
-                    }
-                });
-            });
-        </script>
-    </body>
-    </html>
-    `);
+// Simple privacy policy
+app.get('/api/privacy-policy', (req, res) => {
+  res.send('<h1>Privacy Policy</h1><p>Real Estate Sage - We only use Facebook data when you authorize it.</p>');
 });
 
+// Start server
+app.listen(port, () => {
+  console.log(`🚀 Real Estate Sage API running on port ${port}`);
+  console.log(`🌐 Health check: http://localhost:${port}`);
+  console.log(`📝 Post endpoint: http://localhost:${port}/api/post-now`);
+  console.log(`📘 Facebook status: http://localhost:${port}/api/facebook-status`);
+});
 
-
-// Keep your existing app.listen but wrap it in a condition
-if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}
-
-// Add this at the very end of server.js for Vercel
 module.exports = app;
