@@ -25,9 +25,11 @@ app.get('/', (req, res) => {
       health: "GET /",
       postToFacebook: "POST /api/post-now",
       facebookStatus: "GET /api/facebook-status",
-      pageInfo: "GET /api/page-info"
+      pageInfo: "GET /api/page-info",
+      postListing: "POST /api/post-listing",
+      postMultipleListings: "POST /api/post-multiple-listings"
     },
-    version: "2.0.0"
+    version: "2.1.0"
   });
 });
 
@@ -67,6 +69,156 @@ app.post('/api/post-now', async (req, res) => {
     }
   } catch (error) {
     console.error('💥 Server error in post-now:', error);
+    res.status(500).json({ 
+      error: "Internal server error", 
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// NEW: POST /api/post-listing - Post a single property listing
+app.post('/api/post-listing', async (req, res) => {
+  try {
+    const listingData = req.body;
+    
+    console.log('🏠 Property listing request received:', { 
+      address: listingData.address, 
+      price: listingData.price,
+      timestamp: new Date().toISOString() 
+    });
+    
+    // Validate required fields
+    if (!listingData.address || !listingData.price || !listingData.city) {
+      return res.status(400).json({ 
+        error: "Missing required fields: address, price, and city are required",
+        example: {
+          address: "123 Main Street",
+          price: "450000",
+          bedrooms: 3,
+          bathrooms: 2,
+          sqft: 1800,
+          features: ["Hardwood floors", "Updated kitchen"],
+          type: "House",
+          neighborhood: "Downtown",
+          city: "Springfield",
+          imageUrl: "https://example.com/house.jpg"
+        }
+      });
+    }
+
+    // Create property listing object
+    const propertyListing = facebookAPI.createPropertyListing(listingData);
+
+    // Post to Facebook
+    const result = await facebookAPI.postPropertyListing(propertyListing);
+    
+    if (result.success) {
+      console.log('✅ Property listing posted successfully:', result);
+      res.status(200).json({
+        message: "🎉 Property listing posted successfully to Facebook!",
+        success: true,
+        listing: {
+          id: propertyListing.id,
+          address: propertyListing.address,
+          price: propertyListing.price,
+          city: propertyListing.city
+        },
+        facebook: result,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.log('❌ Property listing post failed:', result);
+      res.status(500).json({
+        error: "❌ Failed to post property listing to Facebook",
+        success: false,
+        details: result.error,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error('💥 Server error in post-listing:', error);
+    res.status(500).json({ 
+      error: "Internal server error", 
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// NEW: POST /api/post-multiple-listings - Post multiple property listings
+app.post('/api/post-multiple-listings', async (req, res) => {
+  try {
+    const { listings, delayBetweenPosts = 5000 } = req.body;
+    
+    console.log('🏠 Multiple listings request received:', { 
+      count: listings?.length, 
+      delay: delayBetweenPosts,
+      timestamp: new Date().toISOString() 
+    });
+    
+    if (!listings || !Array.isArray(listings) || listings.length === 0) {
+      return res.status(400).json({ 
+        error: "Listings array is required and must contain at least one listing",
+        example: {
+          listings: [
+            {
+              address: "123 Main Street",
+              price: "450000",
+              bedrooms: 3,
+              bathrooms: 2,
+              city: "Springfield",
+              type: "House"
+            }
+          ],
+          delayBetweenPosts: 5000
+        }
+      });
+    }
+
+    // Validate each listing has required fields
+    const invalidListings = listings.filter((listing, index) => 
+      !listing.address || !listing.price || !listing.city
+    );
+
+    if (invalidListings.length > 0) {
+      return res.status(400).json({
+        error: "Some listings are missing required fields (address, price, city)",
+        invalidCount: invalidListings.length,
+        totalCount: listings.length
+      });
+    }
+
+    console.log(`📤 Starting to post ${listings.length} listings with ${delayBetweenPosts/1000}s delay...`);
+
+    // Post multiple listings
+    const results = await facebookAPI.postMultipleListings(listings, delayBetweenPosts);
+    
+    const successCount = results.filter(r => r.result.success).length;
+    const failCount = results.length - successCount;
+
+    console.log(`📊 Batch posting complete: ${successCount} success, ${failCount} failed`);
+
+    res.status(200).json({
+      message: `📊 Batch posting complete: ${successCount} posted, ${failCount} failed`,
+      success: true,
+      summary: {
+        total: results.length,
+        successful: successCount,
+        failed: failCount
+      },
+      results: results.map(r => ({
+        address: r.listing.address,
+        price: r.listing.price,
+        success: r.result.success,
+        error: r.result.error || null,
+        postId: r.result.postId || null
+      })),
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('💥 Server error in post-multiple-listings:', error);
     res.status(500).json({ 
       error: "Internal server error", 
       details: error.message,
@@ -133,8 +285,10 @@ app.get('/api/privacy-policy', (req, res) => {
 // Start server
 app.listen(port, () => {
   console.log(`🚀 Real Estate Sage API running on port ${port}`);
-  console.log(`🌐 Health check: http://localhost:${port}`);
+  console.log(`🌍 Health check: http://localhost:${port}`);
   console.log(`📝 Post endpoint: http://localhost:${port}/api/post-now`);
+  console.log(`🏠 Post listing: http://localhost:${port}/api/post-listing`);
+  console.log(`🏠 Post multiple: http://localhost:${port}/api/post-multiple-listings`);
   console.log(`📘 Facebook status: http://localhost:${port}/api/facebook-status`);
 });
 
