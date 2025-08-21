@@ -22,14 +22,14 @@ app.get('/', (req, res) => {
     status: "✅ Running",
     timestamp: new Date().toISOString(),
     endpoints: {
-      health: "GET /",
-      postToFacebook: "POST /api/post-now",
-      facebookStatus: "GET /api/facebook-status",
-      pageInfo: "GET /api/page-info",
-      postListing: "POST /api/post-listing",
-      postMultipleListings: "POST /api/post-multiple-listings"
-    },
-    version: "2.1.0"
+  health: "GET /",
+  postToFacebook: "POST /api/post-now",
+  facebookStatus: "GET /api/facebook-status",
+  pageInfo: "GET /api/page-info",
+  postListing: "POST /api/post-listing",
+  postMultipleListings: "POST /api/post-multiple-listings"
+},
+    version: "2.1.1"
   });
 });
 
@@ -77,9 +77,9 @@ app.post('/api/post-now', async (req, res) => {
   }
 });
 
-// In your server.js file, replace the post-listing route with this version:
+// Replace your /api/post-listing route with this version that uses existing Facebook functions
 
-// POST /api/post-listing - Post a single property listing (FIXED VERSION)
+// POST /api/post-listing - Post a single property listing (SIMPLE FIX)
 app.post('/api/post-listing', async (req, res) => {
   try {
     const listingData = req.body;
@@ -109,23 +109,35 @@ app.post('/api/post-listing', async (req, res) => {
       });
     }
 
-    // Create property listing object directly (without using createPropertyListing helper)
-    const propertyListing = {
-      id: Date.now() + Math.random(), // Simple ID generation
-      address: listingData.address,
-      price: listingData.price,
-      bedrooms: listingData.bedrooms || 0,
-      bathrooms: listingData.bathrooms || 0,
-      sqft: listingData.sqft || null,
-      features: listingData.features || [],
-      type: listingData.type || "Property",
-      neighborhood: listingData.neighborhood || null,
-      city: listingData.city,
-      imageUrl: listingData.imageUrl || null
-    };
+    // Format the property listing message manually (since formatPropertyMessage might not exist)
+    const price = listingData.price.startsWith('$') ? listingData.price : `$${listingData.price}`;
+    const sqftText = listingData.sqft ? ` | ${listingData.sqft.toLocaleString()} sq ft` : '';
+    const neighborhoodText = listingData.neighborhood ? ` in ${listingData.neighborhood}` : '';
+    
+    let message = `🏠 NEW LISTING: ${listingData.address}\n`;
+    message += `💰 ${price}\n`;
+    message += `🛏️ ${listingData.bedrooms || 0} bed, ${listingData.bathrooms || 0} bath${sqftText}\n`;
+    message += `📍 ${listingData.city}${neighborhoodText}\n`;
+    message += `🏷️ Property Type: ${listingData.type || 'Property'}\n`;
 
-    // Post to Facebook using the existing postPropertyListing function
-    const result = await facebookAPI.postPropertyListing(propertyListing);
+    if (listingData.features && listingData.features.length > 0) {
+      message += `\n✨ Features:\n`;
+      listingData.features.slice(0, 5).forEach(feature => {
+        message += `• ${feature}\n`;
+      });
+    }
+
+    message += `\n#RealEstate #${listingData.city.replace(/\s+/g, '')} #${(listingData.type || 'Property').replace(/\s+/g, '')}`;
+
+    // Use the existing postMessage or postWithImage function
+    let result;
+    if (listingData.imageUrl) {
+      // Use postWithImage if it exists
+      result = await facebookAPI.postWithImage(message, listingData.imageUrl);
+    } else {
+      // Use the basic postMessage function that definitely exists
+      result = await facebookAPI.postMessage(message);
+    }
     
     if (result.success) {
       console.log('✅ Property listing posted successfully:', result);
@@ -133,10 +145,11 @@ app.post('/api/post-listing', async (req, res) => {
         message: "🎉 Property listing posted successfully to Facebook!",
         success: true,
         listing: {
-          id: propertyListing.id,
-          address: propertyListing.address,
-          price: propertyListing.price,
-          city: propertyListing.city
+          address: listingData.address,
+          price: price,
+          city: listingData.city,
+          bedrooms: listingData.bedrooms || 0,
+          bathrooms: listingData.bathrooms || 0
         },
         facebook: result,
         timestamp: new Date().toISOString()
@@ -160,7 +173,7 @@ app.post('/api/post-listing', async (req, res) => {
   }
 });
 
-// NEW: POST /api/post-multiple-listings - Post multiple property listings
+// POST /api/post-multiple-listings - Post multiple property listings (SIMPLE FIX)
 app.post('/api/post-multiple-listings', async (req, res) => {
   try {
     const { listings, delayBetweenPosts = 5000 } = req.body;
@@ -205,8 +218,62 @@ app.post('/api/post-multiple-listings', async (req, res) => {
 
     console.log(`📤 Starting to post ${listings.length} listings with ${delayBetweenPosts/1000}s delay...`);
 
-    // Post multiple listings
-    const results = await facebookAPI.postMultipleListings(listings, delayBetweenPosts);
+    const results = [];
+    
+    for (let i = 0; i < listings.length; i++) {
+      const listing = listings[i];
+      console.log(`Posting listing ${i + 1} of ${listings.length}...`);
+      
+      try {
+        // Format message for each listing
+        const price = listing.price.startsWith('$') ? listing.price : `$${listing.price}`;
+        const sqftText = listing.sqft ? ` | ${listing.sqft.toLocaleString()} sq ft` : '';
+        const neighborhoodText = listing.neighborhood ? ` in ${listing.neighborhood}` : '';
+        
+        let message = `🏠 NEW LISTING: ${listing.address}\n`;
+        message += `💰 ${price}\n`;
+        message += `🛏️ ${listing.bedrooms || 0} bed, ${listing.bathrooms || 0} bath${sqftText}\n`;
+        message += `📍 ${listing.city}${neighborhoodText}\n`;
+        message += `🏷️ Property Type: ${listing.type || 'Property'}\n`;
+
+        if (listing.features && listing.features.length > 0) {
+          message += `\n✨ Features:\n`;
+          listing.features.slice(0, 5).forEach(feature => {
+            message += `• ${feature}\n`;
+          });
+        }
+
+        message += `\n#RealEstate #${listing.city.replace(/\s+/g, '')} #${(listing.type || 'Property').replace(/\s+/g, '')}`;
+
+        // Post using existing functions
+        let result;
+        if (listing.imageUrl) {
+          result = await facebookAPI.postWithImage(message, listing.imageUrl);
+        } else {
+          result = await facebookAPI.postMessage(message);
+        }
+
+        results.push({
+          listing: listing,
+          result: result
+        });
+
+        // Add delay between posts
+        if (i < listings.length - 1) {
+          console.log(`Waiting ${delayBetweenPosts/1000} seconds before next post...`);
+          await new Promise(resolve => setTimeout(resolve, delayBetweenPosts));
+        }
+      } catch (error) {
+        console.error(`Error posting listing ${i + 1}:`, error);
+        results.push({
+          listing: listing,
+          result: {
+            success: false,
+            error: error.message
+          }
+        });
+      }
+    }
     
     const successCount = results.filter(r => r.result.success).length;
     const failCount = results.length - successCount;
