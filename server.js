@@ -77,7 +77,9 @@ app.post('/api/post-now', async (req, res) => {
   }
 });
 
-// NEW: POST /api/post-listing - Post a single property listing
+// In your server.js file, replace the post-listing route with this version:
+
+// POST /api/post-listing - Post a single property listing (FIXED VERSION)
 app.post('/api/post-listing', async (req, res) => {
   try {
     const listingData = req.body;
@@ -107,10 +109,22 @@ app.post('/api/post-listing', async (req, res) => {
       });
     }
 
-    // Create property listing object
-    const propertyListing = facebookAPI.createPropertyListing(listingData);
+    // Create property listing object directly (without using createPropertyListing helper)
+    const propertyListing = {
+      id: Date.now() + Math.random(), // Simple ID generation
+      address: listingData.address,
+      price: listingData.price,
+      bedrooms: listingData.bedrooms || 0,
+      bathrooms: listingData.bathrooms || 0,
+      sqft: listingData.sqft || null,
+      features: listingData.features || [],
+      type: listingData.type || "Property",
+      neighborhood: listingData.neighborhood || null,
+      city: listingData.city,
+      imageUrl: listingData.imageUrl || null
+    };
 
-    // Post to Facebook
+    // Post to Facebook using the existing postPropertyListing function
     const result = await facebookAPI.postPropertyListing(propertyListing);
     
     if (result.success) {
